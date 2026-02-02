@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
-Name: Sara K Nicholson
-Title: Labeling HIV Sequence as X4 or R5 (X4 or R5-derived), returns dictionary of annotations
+Title: Labeling HIV Sequence as X4 or R5-derived tropism, returns dictionary of annotations
+Created By : Sara Nicholson
 Date: February 24, 2025
-Description: This program can be run on the command line by providing a fasta file with your sequences
-and a length at which you would like to filter sequences at.
+Description: This program can be run on the command line by providing:
+    [1] --arg1 : a fasta file with your sequences
+    [2] --arg2 : path to output alignment file after clustal is run on fasta
+    [3] --arg3 : path to fasta file after alignment file is converted to fasta
+    [4] --arg4 : a length at which you would like to filter sequences at
+    [5] --arg5 : A cutoff # covering the max mismatches you can have between your sequence and the reference
 """
-
 import sys
+import argparse
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
@@ -16,26 +20,18 @@ import subprocess
 
 # First align sequences using subprocess module - subprocesses calls external packages
 # (clustalw2 needs to be referenced or in path to be called here) - can use other MSAs
-def clustal_align(infile, outfile):
-    subprocess.run(["/home/sara/Downloads/clustalw-2.1-linux-x86_64-libcppstatic/clustalw2", infile, outfile])
+def clustal_align(infile, outfile, outfileFA):
+    command = ["/home/sara/Downloads/clustalw-2.1-linux-x86_64-libcppstatic/clustalw2", "-infile=" + infile, "-outfile="+ outfile]
+    subprocess.run(
+        command,
+        stdout=subprocess.DEVNULL,  # Redirects standard output
+        stderr=subprocess.DEVNULL,  # Redirects standard error
+        check=True  # Raise an exception if the command fails
+    )
     # Convert Alignment file to Fasta
-
-def convert_alignment(outfile, outfileFA)
     outFA = AlignIO.convert(outfile, "clustal", outfileFA, "fasta")
     return outFA
 
-#  subprocess.run(["/home/sara/Downloads/clustalw-2.1-linux-x86_64-libcppstatic/clustalw2", "-infile=/home/sara/GITHUB/Biopython_helper_scripts/sample_fasta.fa", "-outfile=/home/sara/GITHUB/Biopython_helper_scripts/aligned.aln"])
-#    # Convert Alignment file to Fasta
-#    AlignIO.convert("/home/sara/GITHUB/Biopython_helper_scripts/aligned.aln", "clustal", "/home/sara/GITHUB/Biopython_helper_scripts/aligned.fa", "fasta")
-
-
-# View Aligned Sequences
-alignment = AlignIO.read("/home/sara/GITHUB/Biopython_helper_scripts/aligned.fa", "fasta")
-print(alignment)
-for record in alignment:
-    print(f"Sequence ID: {record.id}, Sequence: {record.seq}")
-
-# second find divergence against a reference and have many if/then statements to conclude with label
 # LOAD REFERENCES
 refX4 = SeqRecord(
                 Seq("TRPNNNTRKSIRIQRGPGRAFVTIGKI-GNMRQAHCNISRAKWNATLKQIASKLREQFGNNKTIIFKQSSGGDPEI"),
@@ -60,7 +56,7 @@ def list_sequences(recs, length):
     seq_rec = SeqIO.parse(recs, "fasta")
     fasta = []
     for record in seq_rec:
-        if len(record.seq) >= length:  # remove sequences with <= 60 nucleotides
+        if len(record.seq) >= length:  # remove sequences with <= # of nucleotides specified
             record_final = SeqRecord(
                 record.seq,
                 id=record.id,
@@ -81,7 +77,7 @@ def list_list_sequences(fa):
     return listed_seqs
 
 
-def annotate_seqs(seqs):
+def annotate_seqs(seqs, cutoff):
     """ score alignments to references and determine if X4 or R5 sequence based on score"""
     scoresx4 = []
     scoresr5 = []
@@ -102,17 +98,18 @@ def annotate_seqs(seqs):
 
     annotation = []  # open list
     for i in range(len(scoresx4)):  # iterate
-        if scoresx4[i] > scoresr5[i]:
-            trop = "R5"  # if the x4 score is greater than the r5 score then that sequence is designated R5
-        elif scoresx4[i] == scoresr5[i]:
-            trop = "NA"  # if the scores are equal then the sequence tropism is indistinguishable
+        if scoresx4[i] > scoresr5[i] and scoresr5[i] < cutoff:
+            trop = "R5"  # if the x4 score is greater than the r5 score and the r5 score doesnt exceed the cutoff then that sequence is designated R5
+        elif scoresr5[i] > scoresx4[i] and scoresx4[i] < cutoff:
+            trop = "X4"  # if the r5 score is greater than the x4 score and the x4 score doesnt exceed the cutoff then that sequence is designated X4
         else:
-            trop = "X4"  # otherwise, the sequence is designated X4
+            trop = "NA"  # otherwise, the sequence is designated NA if its indistinguishable or exceeds the cutoff
         annotation.append(trop)  # add annotation designation to list
 
+    print("X4 scores: ")
     print(scoresx4)
+    print("R5 scores: ")
     print(scoresr5)
-    print(annotation)
     return annotation
 
 
@@ -127,16 +124,46 @@ def get_seq_ids(fa):
 
 if __name__ == "__main__":
     # Initializations
-    records = str(sys.argv[1])
-    outfile = str(sys.argv[2])
-    outfileFA = str(sys.argv[3])
-    leng = int(sys.argv[4])
+    parser = argparse.ArgumentParser(description="Labeling HIV Sequence as X4 or R5-derived tropism, returns dictionary of annotations.")
 
-    clustal_align(records, outfile)
-    aligned = convert_alignment(outfile, outfileFA)
-    fasta = list_sequences(aligned, leng)
+    # Add arguments with default values
+    parser.add_argument("--arg1", default="/home/sara/GITHUB/Biopython_helper_scripts/sample_fasta.fa", help="Provide Fasta File of Sequences")
+    parser.add_argument("--arg2", default="/home/sara/GITHUB/Biopython_helper_scripts/aligned.aln", help="Provide Output file for alignment")
+    parser.add_argument("--arg3", default="/home/sara/GITHUB/Biopython_helper_scripts/aligned.fa",
+                        help="Provide Output file for alignment converted to fasta")
+    parser.add_argument("--arg4", default=60,
+                        help="Provide Length to filter sequences by")
+    parser.add_argument("--arg5", default=6,
+                        help="Provide Cutoff Score to determine if sequences should be annotated as NA, X4 or R5")
+
+    args = parser.parse_args()
+
+    print(f"Fasta File: {args.arg1}")
+    print(f"Alignment Output: {args.arg2}")
+    print(f"Fasta Output Post Conversion: {args.arg3}")
+    print(f"Minimum Length: {args.arg4}")
+    print(f"Score Cutoff: {args.arg5}")
+
+    records = str(args.arg1)
+    outfile = str(args.arg2)
+    outfileFA = str(args.arg3)
+    leng = int(args.arg4)
+    cutoff = int(args.arg5)
+
+    # align sequences
+    clustal_align(records, outfile, outfileFA)
+    # List sequences and list nucleotides within sequences
+    fasta = list_sequences(outfileFA, leng)
     listed_seqs = list_list_sequences(fasta)
-    annotation = annotate_seqs(listed_seqs)
+    # Adjust for any discrepancies between length of seqs and references by adding blanks to references
+    max_len = max(len(sublist) for sublist in listed_seqs)
+    while len(x4) < max_len:
+        x4.append("-")
+    while len(r5) < max_len:
+        r5.append("-")
+    # Compare Sequences by scoring alignments to reference and determining tropism
+    annotation = annotate_seqs(listed_seqs, cutoff)
+    # Collect Sequence IDs to create dictionary
     seq_ids = get_seq_ids(fasta)
 
     # create dictionary using the list of sequence IDs and the designated annotations
